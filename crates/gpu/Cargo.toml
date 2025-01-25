@@ -1,0 +1,10 @@
+[package]
+name = "nuum_gpu"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+nuum_core = { path = "../core" }
+pollster = "0.4.0"
+
+wgpu = "24.0.0"

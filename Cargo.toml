@@ -1,0 +1,23 @@
+[package]
+name = "nuum"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+nuum_core = { path = "crates/core" }
+
+nuum_win_platform = { path = "crates/win_platform", optional = true }
+
+nuum_gpu = { path = "crates/gpu", optional = true }
+nuum_render_graph = { path = "crates/render_graph", optional = true }
+
+[features]
+win_platform = ["nuum_win_platform"]
+gpu = ["nuum_gpu"]
+renderer = ["nuum_render_graph"]
+
+default = ["win_platform", "gpu", "renderer"]
+
+[workspace]
+resolver = "2"
+members = ["crates/*"]

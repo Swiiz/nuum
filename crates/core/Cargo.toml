@@ -1,0 +1,7 @@
+[package]
+name = "nuum_core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+mint = "0.5.9"

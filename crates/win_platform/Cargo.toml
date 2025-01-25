@@ -1,0 +1,9 @@
+[package]
+name = "nuum_win_platform"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+nuum_core = { path = "../core" }
+
+winit = "0.30.8"

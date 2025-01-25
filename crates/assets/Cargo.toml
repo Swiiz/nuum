@@ -1,0 +1,9 @@
+[package]
+name = "nuum_assets"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+nuum_core = { path = "../core" }
+
+asset_tree = { git = "https://github.com/Swiiz/asset_tree" }
