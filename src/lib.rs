@@ -10,6 +10,7 @@ pub use nuum_gpu as gpu;
 #[cfg(feature = "renderer")]
 pub use nuum_render_graph as render_graph;
 
+/*
 pub mod compat {
     use std::borrow::Borrow;
 
@@ -36,3 +37,4 @@ pub mod compat {
         }
     }
 }
+ */

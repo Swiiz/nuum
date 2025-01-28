@@ -6,21 +6,21 @@ use nuum_gpu::{
 };
 
 use crate::{
-    pass::{Pass, PassNode},
-    res::{RenderResMap, WriteRes},
+    pass::{PassEncoder, PassNode},
+    res::{ReadRes, RenderResMap, WriteRes},
 };
 
-pub struct SetColorPass(pub WriteRes<TextureView>, pub wgpu::Color);
+pub struct SetColorPass(pub WriteRes<TextureView>, pub ReadRes<wgpu::Color>);
 
-impl Pass for SetColorPass {
-    fn encode(&self, res: &RenderResMap, encoder: &mut wgpu::CommandEncoder, _: &Gpu) {
+impl PassEncoder for SetColorPass {
+    fn encode(&mut self, res: &RenderResMap, encoder: &mut wgpu::CommandEncoder, _: &Gpu) {
         encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some(type_name::<Self>()),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &res.access(&self.0),
                 resolve_target: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(self.1),
+                    load: wgpu::LoadOp::Clear(res.access(&self.1).clone()),
                     store: wgpu::StoreOp::Store,
                 },
             })],

@@ -1,0 +1,11 @@
+[package]
+name = "nuum_renderer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+nuum_core = { path = "../../engine/core" }
+nuum_gpu = { path = "../../engine/gpu" }
+nuum_render_graph = { path = "../../engine/render_graph" }
+
+nuum_win_platform = { path = "../win_platform" }

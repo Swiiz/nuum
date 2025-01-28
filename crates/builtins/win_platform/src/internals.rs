@@ -1,24 +1,12 @@
-use std::{any::Any, borrow::Borrow};
-
 use nuum_core::{platform::PlatformHandle, Controller};
 use winit::{
-    application::ApplicationHandler,
-    event::WindowEvent,
-    event_loop::ActiveEventLoop,
-    window::{Window, WindowId},
+    application::ApplicationHandler, event::WindowEvent, event_loop::ActiveEventLoop,
+    window::WindowId,
 };
 
-use crate::{WinPlatformEvent, WinPlatformEventKind, WinPlatformHandle};
+use crate::{WinPlatformEvent, WinPlatformEventKind, WinPlatformHandle, WindowPtr};
 
 pub type WindowVec = Vec<Box<dyn WindowPtr>>;
-pub trait WindowPtr: Any + Borrow<Window> {
-    fn as_any_ref(&self) -> &dyn Any;
-}
-impl<T: Borrow<Window> + 'static> WindowPtr for T {
-    fn as_any_ref(&self) -> &dyn Any {
-        self
-    }
-}
 
 pub struct WinPlatformRunner<'a, T: for<'b> Controller<WinPlatformEvent<'b>>> {
     controller: &'a mut T,

@@ -1,7 +1,7 @@
 use dagga::{Node, Schedule};
 use nuum_gpu::{surface::Frame, Gpu};
-use pass::{DynPass, Pass, PassNode};
-use res::{RenderGraphAlloc, RenderResMap, ResHandle, ResId};
+use pass::{DynPass, PassEncoder, PassNode};
+use res::{RenderGraphAlloc, RenderResMap, ResId};
 
 pub mod builtins;
 pub mod pass;
@@ -28,9 +28,9 @@ impl RenderGraph {
 
         self.data.prepare(view, surface_texture);
 
-        for batch in &self.schedule.batches {
+        for batch in &mut self.schedule.batches {
             for node in batch {
-                (node.inner().run)(&self.data, &mut encoder, gpu);
+                (node.inner_mut().run)(&self.data, &mut encoder, gpu);
             }
         }
 
@@ -50,7 +50,7 @@ pub struct RenderGraphBuilder {
 }
 
 impl RenderGraphBuilder {
-    pub fn with_pass(mut self, name: impl Into<String>, pass: impl Pass) -> Self {
+    pub fn with_pass(mut self, name: impl Into<String>, pass: impl PassEncoder) -> Self {
         let builder = pass.node_builder();
         let node = Node::new(pass.dyn_pass()).with_name(name);
         self.dag.add_node(builder(node));

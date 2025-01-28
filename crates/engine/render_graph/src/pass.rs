@@ -7,11 +7,11 @@ use crate::res::{RenderResMap, ResId};
 
 pub type PassNode = Node<DynPass, ResId>;
 
-pub trait Pass: Sized + 'static {
-    fn encode(&self, res: &RenderResMap, encoder: &mut CommandEncoder, gpu: &Gpu);
+pub trait PassEncoder: Sized + 'static {
+    fn encode<'a>(&'a mut self, res: &RenderResMap, encoder: &'a mut CommandEncoder, gpu: &Gpu);
     fn node_builder(&self) -> (impl FnOnce(PassNode) -> PassNode + 'static);
 
-    fn dyn_pass(self) -> DynPass {
+    fn dyn_pass(mut self) -> DynPass {
         DynPass {
             run: Box::new(move |res, enc, gpu| self.encode(res, enc, gpu)),
         }
@@ -19,15 +19,15 @@ pub trait Pass: Sized + 'static {
 }
 
 pub struct DynPass {
-    pub run: Box<dyn Fn(&RenderResMap, &mut CommandEncoder, &Gpu)>,
+    pub run: Box<dyn FnMut(&RenderResMap, &mut CommandEncoder, &Gpu)>,
 }
 
-pub trait PassScheduler: Pass {
+pub trait PassScheduler: PassEncoder {
     fn run_before(self, name: impl Into<Cow<'static, str>>) -> RunBefore<Self>;
     fn run_after(self, name: impl Into<Cow<'static, str>>) -> RunAfter<Self>;
 }
 
-impl<T: Pass> PassScheduler for T {
+impl<T: PassEncoder> PassScheduler for T {
     fn run_before(self, name: impl Into<Cow<'static, str>>) -> RunBefore<Self> {
         RunBefore(self, name.into())
     }
@@ -37,11 +37,11 @@ impl<T: Pass> PassScheduler for T {
     }
 }
 
-pub struct RunBefore<T: Pass>(pub T, Cow<'static, str>);
-pub struct RunAfter<T: Pass>(pub T, Cow<'static, str>);
+pub struct RunBefore<T: PassEncoder>(pub T, Cow<'static, str>);
+pub struct RunAfter<T: PassEncoder>(pub T, Cow<'static, str>);
 
-impl<T: Pass> Pass for RunBefore<T> {
-    fn encode(&self, res: &RenderResMap, encoder: &mut CommandEncoder, gpu: &Gpu) {
+impl<T: PassEncoder> PassEncoder for RunBefore<T> {
+    fn encode(&mut self, res: &RenderResMap, encoder: &mut CommandEncoder, gpu: &Gpu) {
         self.0.encode(res, encoder, gpu);
     }
 
@@ -52,8 +52,8 @@ impl<T: Pass> Pass for RunBefore<T> {
     }
 }
 
-impl<T: Pass> Pass for RunAfter<T> {
-    fn encode(&self, res: &RenderResMap, encoder: &mut CommandEncoder, gpu: &Gpu) {
+impl<T: PassEncoder> PassEncoder for RunAfter<T> {
+    fn encode(&mut self, res: &RenderResMap, encoder: &mut CommandEncoder, gpu: &Gpu) {
         self.0.encode(res, encoder, gpu);
     }
 

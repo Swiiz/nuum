@@ -1,0 +1,17 @@
+[package]
+name = "nuum_egui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+nuum_core = { path = "../../engine/core" }
+egui = "0.30.0"
+
+nuum_gpu = { path = "../../engine/gpu" }
+nuum_render_graph = { path = "../../engine/render_graph" }
+egui-wgpu = "0.30.0"
+
+nuum_win_platform = { path = "../win_platform" }
+egui-winit = "0.30.0"
+
+nuum_renderer = { path = "../renderer" }

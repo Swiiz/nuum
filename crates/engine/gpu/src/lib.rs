@@ -12,7 +12,7 @@ pub struct Gpu {
 
 impl Gpu {
     pub fn new() -> Self {
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             ..Default::default()
         });
@@ -60,6 +60,7 @@ impl Gpu {
             surface,
             capabilities,
             format,
+            can_draw: false,
         };
 
         surface.resize(self, target.size);

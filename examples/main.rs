@@ -1,89 +1,96 @@
-use std::{collections::HashMap, sync::Arc};
+use std::time::Instant;
 
 use nuum::{
-    compat::IntoSurfaceTarget,
-    core::{platform::Platform, Controller},
-    gpu::{surface::GpuSurface, Gpu},
-    platform::win::{
-        winit::{
-            event::WindowEvent,
-            window::{WindowAttributes, WindowId},
-        },
-        WinPlatform, WinPlatformEvent, WinPlatformEventKind,
+    core::{platform::Platform, Adapter, Controller},
+    gpu::{surface::GpuSurface, wgpu::Color, Gpu},
+    platform::win::builtins::SingleWindowPort,
+    platform::win::WinPlatform,
+    render_graph::{
+        builtins::SetColorPass,
+        pass::PassScheduler,
+        res::{RenderGraphAlloc, ResHandle},
+        RenderGraph,
     },
-    render_graph::RenderGraph,
 };
-use nuum_gpu::wgpu::Color;
-use nuum_render_graph::{builtins::SetColorPass, res::RenderGraphAlloc};
+
+use nuum_egui::{
+    EguiInputPort, EguiRenderData, EguiRenderEvent, EguiRenderPass, EguiRenderPayload,
+    EguiRenderPort,
+};
+use nuum_renderer::RenderPort;
 
 fn main() {
-    WinPlatform::default().run(&mut App::new());
+    let mut app = Adapter {
+        ports: (
+            SingleWindowPort::default(),
+            RenderPort::new(render_graph),
+            EguiInputPort::default(),
+        ),
+        inner: Adapter {
+            ports: (EguiRenderPort::default()),
+            inner: App::default(),
+        },
+    };
+
+    WinPlatform::default().run(&mut app);
 }
 
-pub struct App {
-    gpu: Gpu,
-    surfaces: HashMap<WindowId, GpuSurface<'static>>,
-    render_graph: RenderGraph,
+struct App {
+    start: Instant,
+    background_color: [f32; 3],
 }
 
-impl App {
-    pub fn new() -> Self {
-        let gpu = Gpu::new();
-        let surfaces = HashMap::new();
-
-        // Render Graph Creation
-
-        let alloc = RenderGraphAlloc::default();
-        let view = alloc.frame_view();
-
-        let render_graph = RenderGraph::builder()
-            .with_pass("clear", SetColorPass(view.write(), Color::BLACK))
-            .build(alloc);
-
+impl Default for App {
+    fn default() -> Self {
         Self {
-            gpu,
-            surfaces,
-            render_graph,
+            start: Instant::now(),
+            background_color: [0.0, 0.0, 0.0],
         }
     }
 }
 
-impl<'a> Controller<WinPlatformEvent<'a>> for App {
-    fn run(&mut self, input: WinPlatformEvent<'a>) {
-        match input.kind {
-            WinPlatformEventKind::Init => {
-                let win_ptr = input.handle.create_window_ptr(
-                    Arc::new,
-                    WindowAttributes::default().with_title("nuum example"),
-                );
+impl<'a, 'b> Controller<EguiRenderEvent<'a, 'b, RenderData>> for App {
+    fn run(&mut self, mut event: EguiRenderEvent<'a, 'b, RenderData>) {
+        nuum_egui::api::Window::new("Nuum EGUI window").show(&mut event.egui, |ui| {
+            ui.heading(format!("Hello world! {}", self.start.elapsed().as_millis()));
+            ui.separator();
+            ui.label("Background color:");
+            ui.color_edit_button_rgb(&mut self.background_color);
+        });
 
-                self.surfaces.insert(
-                    win_ptr.id(),
-                    self.gpu
-                        .acquire_surface(win_ptr.clone().into_surface_target()),
-                );
-            }
-            WinPlatformEventKind::WindowEvent {
-                window_id,
-                window_event,
-            } => match window_event {
-                WindowEvent::CloseRequested => {
-                    self.surfaces.remove(&window_id);
-                    input.handle.remove_window(window_id);
-                }
-                WindowEvent::RedrawRequested => {
-                    let surface = self.surfaces.get_mut(&window_id).unwrap();
-
-                    if let Some(frame) = surface.next_frame(&self.gpu) {
-                        let frame = self.render_graph.run(&self.gpu, frame);
-                        frame.present(&self.gpu);
-                    }
-
-                    input.handle.get_window(window_id).unwrap().request_redraw();
-                }
-                _ => (),
-            },
-            _ => (),
-        }
+        let mut render_bg_color = event.base.access(|data| data.background.write());
+        render_bg_color.r = self.background_color[0] as f64;
+        render_bg_color.g = self.background_color[1] as f64;
+        render_bg_color.b = self.background_color[2] as f64;
     }
+}
+
+pub struct RenderData {
+    egui: ResHandle<EguiRenderPayload>,
+    background: ResHandle<Color>,
+}
+
+impl EguiRenderData for RenderData {
+    fn egui_render_payload(&self) -> &ResHandle<EguiRenderPayload> {
+        &self.egui
+    }
+}
+
+pub fn render_graph(gpu: &Gpu, surface: &GpuSurface<'static>) -> (RenderGraph, RenderData) {
+    let mut alloc = RenderGraphAlloc::default();
+    let data = RenderData {
+        egui: alloc.push(None),
+        background: alloc.push(Some(Color::BLACK)),
+    };
+
+    let view = alloc.frame_view();
+    let render_graph = RenderGraph::builder()
+        .with_pass("clear", SetColorPass(view.write(), data.background.read()))
+        .with_pass(
+            "egui",
+            EguiRenderPass::new(view.write(), data.egui.move_(), gpu, surface).run_after("clear"),
+        )
+        .build(alloc);
+
+    (render_graph, data)
 }

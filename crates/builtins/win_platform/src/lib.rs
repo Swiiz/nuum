@@ -1,4 +1,4 @@
-use internals::{WindowPtr, WindowVec};
+use internals::WindowVec;
 use nuum_core::platform::{Platform, PlatformHandle};
 use winit::{
     event::{DeviceEvent, DeviceId, WindowEvent},
@@ -6,6 +6,7 @@ use winit::{
     window::{Window, WindowAttributes, WindowId},
 };
 
+pub mod builtins;
 mod internals;
 
 pub use winit;
@@ -114,5 +115,14 @@ impl Platform for WinPlatform {
         event_loop.set_control_flow(self.control_flow);
 
         event_loop.run_app(&mut runner).unwrap();
+    }
+}
+
+pub trait WindowPtr: std::any::Any + std::borrow::Borrow<Window> {
+    fn as_any_ref(&self) -> &dyn std::any::Any;
+}
+impl<T: std::borrow::Borrow<Window> + 'static> WindowPtr for T {
+    fn as_any_ref(&self) -> &dyn std::any::Any {
+        self
     }
 }

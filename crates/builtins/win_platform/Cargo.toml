@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-nuum_core = { path = "../core" }
+nuum_core = { path = "../../engine/core" }
 
 winit = "0.30.8"

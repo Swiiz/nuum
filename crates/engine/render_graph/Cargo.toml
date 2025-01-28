@@ -4,6 +4,5 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-dagga = "0.2.1"
-nuum_core = { path = "../core" }
 nuum_gpu = { path = "../gpu" }
+dagga = "0.2.1"

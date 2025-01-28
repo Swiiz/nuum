@@ -12,35 +12,43 @@ pub struct GpuSurface<'a> {
     pub surface: wgpu::Surface<'a>,
     pub capabilities: wgpu::SurfaceCapabilities,
     pub format: wgpu::TextureFormat,
+    pub can_draw: bool,
 }
 
 impl GpuSurface<'_> {
     pub fn resize(&mut self, gpu: &Gpu, size: impl Into<Vector2<u32>>) {
         let size = size.into();
-        self.surface.configure(
-            &gpu.device,
-            &wgpu::SurfaceConfiguration {
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                format: self.format,
-                width: size.x,
-                height: size.y,
-                present_mode: self.capabilities.present_modes[0],
-                alpha_mode: self.capabilities.alpha_modes[0],
-                view_formats: vec![],
-                desired_maximum_frame_latency: 2,
-            },
-        );
+        self.can_draw = size.x > 0 && size.y > 0;
+        if self.can_draw {
+            self.surface.configure(
+                &gpu.device,
+                &wgpu::SurfaceConfiguration {
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                    format: self.format,
+                    width: size.x,
+                    height: size.y,
+                    present_mode: self.capabilities.present_modes[0],
+                    alpha_mode: self.capabilities.alpha_modes[0],
+                    view_formats: vec![],
+                    desired_maximum_frame_latency: 2,
+                },
+            );
+        }
     }
 
     pub fn next_frame<'a>(&'a mut self, gpu: &Gpu) -> Option<Frame> {
+        if !self.can_draw {
+            return None;
+        }
+
         let surface_texture = self
             .surface
             .get_current_texture()
-            .map_err(|e| match e {
+            .inspect_err(|e| match e {
                 wgpu::SurfaceError::OutOfMemory => {
                     panic!("The system is out of memory for rendering!")
                 }
-                _ => format!("An error occured during surface texture acquisition: {e}"),
+                _ => (),
             })
             .ok()?;
 

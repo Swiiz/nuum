@@ -1,5 +1,6 @@
 use std::{
-    any::Any,
+    any::{type_name, Any},
+    borrow::BorrowMut,
     cell::{Ref, RefCell, RefMut},
     marker::PhantomData,
     usize, vec,
@@ -35,15 +36,21 @@ pub trait ResAccessor: Into<ResId> {
     type Value<'a>
     where
         Self: 'a;
-    fn access<'a>(&'a self, res: &'a RenderResMap) -> Self::Value<'_>;
+    fn try_access<'a>(&self, res: &'a RenderResMap) -> Option<Self::Value<'a>>;
     fn from_id(id: usize) -> Self;
 }
 
 macro_rules! impl_res_handles {
     ($($name:ident)*) => {
         $(
-          #[derive(Debug, Copy, Clone)]
           pub struct $name<T: 'static>(ResId, PhantomData<T>);
+
+          impl<T> Copy for $name<T> {}
+          impl<T> Clone for $name<T> {
+              fn clone(&self) -> Self {
+                  *self
+              }
+          }
 
           impl<T: 'static> $name<T> {
               #[allow(dead_code)]
@@ -67,18 +74,11 @@ impl_res_handles!(ReadRes WriteRes MoveRes ResultRes);
 impl<T: 'static> ResAccessor for ReadRes<T> {
     type Value<'a> = Ref<'a, T>;
 
-    fn access<'a>(&'a self, res: &'a RenderResMap) -> Self::Value<'a> {
-        Ref::map(res.alloc.elems[self.0 .0].borrow(), |b| {
-            b.as_ref()
-                .unwrap_or_else(|| {
-                    panic!(
-                        "Tried to reference uninitialized render graph resource: {:?}",
-                        std::any::type_name::<T>()
-                    )
-                })
-                .downcast_ref::<T>()
-                .unwrap()
+    fn try_access<'a>(&self, res: &'a RenderResMap) -> Option<Self::Value<'a>> {
+        Ref::filter_map(res.alloc.elems[self.0 .0].borrow(), |b| {
+            Some(b.as_ref()?.downcast_ref::<T>().unwrap())
         })
+        .ok()
     }
 
     fn from_id(id: usize) -> Self {
@@ -89,18 +89,11 @@ impl<T: 'static> ResAccessor for ReadRes<T> {
 impl<T: 'static> ResAccessor for WriteRes<T> {
     type Value<'a> = RefMut<'a, T>;
 
-    fn access<'a>(&'a self, res: &'a RenderResMap) -> Self::Value<'a> {
-        RefMut::map(res.alloc.elems[self.0 .0].borrow_mut(), |b| {
-            b.as_mut()
-                .unwrap_or_else(|| {
-                    panic!(
-                        "Tried to mutably reference uninitialized render graph resource: {:?}",
-                        std::any::type_name::<T>()
-                    )
-                })
-                .downcast_mut::<T>()
-                .unwrap()
+    fn try_access<'a>(&self, res: &'a RenderResMap) -> Option<Self::Value<'a>> {
+        RefMut::filter_map(res.alloc.elems[self.0 .0].borrow_mut(), |b| {
+            Some(b.as_mut()?.downcast_mut::<T>().unwrap())
         })
+        .ok()
     }
 
     fn from_id(id: usize) -> Self {
@@ -111,18 +104,14 @@ impl<T: 'static> ResAccessor for WriteRes<T> {
 impl<T: 'static> ResAccessor for MoveRes<T> {
     type Value<'a> = T;
 
-    fn access<'a>(&'a self, res: &'a RenderResMap) -> Self::Value<'a> {
-        *res.alloc.elems[self.0 .0]
-            .borrow_mut()
-            .take()
-            .unwrap_or_else(|| {
-                panic!(
-                    "Tried to move uninitialized render graph resource: {:?}",
-                    std::any::type_name::<T>()
-                )
-            })
-            .downcast()
-            .unwrap()
+    fn try_access<'a>(&'a self, res: &'a RenderResMap) -> Option<Self::Value<'a>> {
+        Some(
+            *res.alloc.elems[self.0 .0]
+                .borrow_mut()
+                .take()?
+                .downcast()
+                .unwrap(),
+        )
     }
 
     fn from_id(id: usize) -> Self {
@@ -138,13 +127,21 @@ impl<T: 'static> ResultResValue<'_, T> {
             .replace(Box::new(value))
             .map(|b| *b.downcast().unwrap())
     }
+
+    pub fn set(&mut self, value: Option<T>) -> Option<T> {
+        std::mem::replace(&mut *self.0, value.map(|v| Box::new(v) as Box<dyn Any>))
+            .map(|b| *b.downcast().unwrap())
+    }
 }
 
 impl<T: 'static> ResAccessor for ResultRes<T> {
     type Value<'a> = ResultResValue<'a, T>;
 
-    fn access<'a>(&'a self, res: &'a RenderResMap) -> Self::Value<'a> {
-        ResultResValue(res.alloc.elems[self.0 .0].borrow_mut(), PhantomData)
+    fn try_access<'a>(&self, res: &'a RenderResMap) -> Option<Self::Value<'a>> {
+        Some(ResultResValue(
+            res.alloc.elems[self.0 .0].borrow_mut(),
+            PhantomData,
+        ))
     }
 
     fn from_id(id: usize) -> Self {
@@ -234,7 +231,16 @@ impl RenderResMap {
     /// Those safety rules are automatically met inside properly configured render graph nodes. <br/>
     /// Manual accessing for data feeding the render graph should be done with caution!
     ///
-    pub fn access<'a, T: ResAccessor>(&'a self, res: &'a T) -> T::Value<'a> {
-        res.access(self)
+    pub fn access<'a, T: ResAccessor>(&'a self, res: &T) -> T::Value<'a> {
+        res.try_access(self).unwrap_or_else(|| {
+            panic!(
+                "Tried to access uninit render graph resource {}",
+                type_name::<T>()
+            )
+        })
+    }
+
+    pub fn try_access<'a, T: ResAccessor>(&'a self, res: &T) -> Option<T::Value<'a>> {
+        res.try_access(self)
     }
 }
