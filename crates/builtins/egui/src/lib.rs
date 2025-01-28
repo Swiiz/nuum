@@ -22,60 +22,47 @@ use nuum_render_graph::{
     pass::{PassEncoder, PassNode},
     res::{MoveRes, RenderResMap, ResHandle, WriteRes},
 };
-use nuum_renderer::RenderEvent;
+use nuum_renderer::{native::NativeRenderer, IsRenderEvent, RenderEvent};
 use nuum_win_platform::{WinPlatformEvent, WinPlatformEventKind};
 
-pub struct EguiInputPort {
-    states: HashMap<WindowId, State>,
+pub struct WindowState {
+    state: State,
+    input: RawInput,
+    screen: ScreenDescriptor,
+}
+
+#[derive(Default)]
+pub struct EguiRenderer {
+    states: HashMap<WindowId, WindowState>,
     ctx: Context,
 }
 
-impl Default for EguiInputPort {
-    fn default() -> Self {
-        Self {
-            states: HashMap::default(),
-            ctx: Context::default(),
-        }
-    }
-}
-
-impl<'a, 'b, Inner: Controller<EguiInputEvent>> Port<'a, WinPlatformEvent<'b>, Inner>
-    for EguiInputPort
+impl<T: EguiRenderData, Inner: for<'c, 'd> Controller<EguiRenderEvent<'c, 'd, T>>>
+    NativeRenderer<T, WinPlatformEvent<'_>, Inner> for EguiRenderer
 {
-    fn port(&mut self, event: &mut WinPlatformEvent, inner: &mut Inner) {
+    fn on_platform_event(&mut self, event: &mut WinPlatformEvent<'_>) {
         match &event.kind {
             WinPlatformEventKind::WindowEvent {
                 window_id,
                 window_event,
             } => {
                 if let Some(window) = event.handle.get_window(*window_id) {
-                    let _ = state_lazy(
+                    let window_state = window_state_lazy(
                         &mut self.states,
                         *window_id,
                         self.ctx.clone(),
                         self.ctx.viewport_id(),
                         window,
-                    )
-                    .on_window_event(window, window_event);
+                    );
+                    let _ = window_state.state.on_window_event(window, window_event);
 
                     let (w, h): (u32, u32) = window.inner_size().into();
                     if matches!(window_event, WindowEvent::RedrawRequested) && w > 0 && h > 0 {
-                        let input = self
-                            .states
-                            .get_mut(window_id)
-                            .unwrap()
-                            .take_egui_input(window);
-
-                        let (w, h) = window.inner_size().into();
-                        inner.run(EguiInputEvent {
-                            window_id: *window_id,
-                            screen_descriptor: ScreenDescriptor {
-                                size_in_pixels: [w, h],
-                                pixels_per_point: window.scale_factor() as f32,
-                            },
-                            input: Some(input),
-                            ctx: self.ctx.clone(),
-                        });
+                        window_state.input = window_state.state.take_egui_input(window);
+                        window_state.screen = ScreenDescriptor {
+                            size_in_pixels: [w, h],
+                            pixels_per_point: window.scale_factor() as f32,
+                        };
                     }
                 }
             }
@@ -84,8 +71,8 @@ impl<'a, 'b, Inner: Controller<EguiInputEvent>> Port<'a, WinPlatformEvent<'b>, I
                 device_event,
             } => match device_event {
                 DeviceEvent::MouseMotion { delta } => {
-                    for state in self.states.values_mut() {
-                        state.on_mouse_motion(*delta);
+                    for window_state in self.states.values_mut() {
+                        window_state.state.on_mouse_motion(*delta);
                     }
                 }
                 _ => (),
@@ -93,29 +80,31 @@ impl<'a, 'b, Inner: Controller<EguiInputEvent>> Port<'a, WinPlatformEvent<'b>, I
             _ => (),
         };
     }
-}
 
-pub struct EguiInputEvent {
-    pub window_id: WindowId,
-    pub screen_descriptor: ScreenDescriptor,
-    pub input: Option<RawInput>,
-    pub ctx: Context,
-}
+    fn render_port(&mut self, event: &mut RenderEvent<T>, inner: &mut Inner) {
+        if let Some(window_state) = self.states.get_mut(&event.window_id()) {
+            let full_output = self
+                .ctx
+                .run(std::mem::take(&mut window_state.input), |ctx| {
+                    inner.run(EguiRenderEvent {
+                        base: event,
+                        egui: ctx.clone(),
+                    });
+                });
+            let paint_jobs = self
+                .ctx
+                .tessellate(full_output.shapes, full_output.pixels_per_point);
 
-pub struct EguiRenderPort {
-    ctx: Option<Context>,
-    render_data: Option<EguiRenderPayload>,
-    begin_next: bool,
-    submit_current: bool,
-}
-
-impl Default for EguiRenderPort {
-    fn default() -> Self {
-        Self {
-            ctx: None,
-            render_data: None,
-            begin_next: true,
-            submit_current: false,
+            event
+                .access(|res| res.egui_render_payload().result())
+                .replace(EguiRenderPayload {
+                    screen_descriptor: ScreenDescriptor {
+                        size_in_pixels: window_state.screen.size_in_pixels,
+                        pixels_per_point: window_state.screen.pixels_per_point,
+                    },
+                    paint_jobs: paint_jobs.into_boxed_slice(),
+                    textures_delta: full_output.textures_delta,
+                });
         }
     }
 }
@@ -125,33 +114,10 @@ pub struct EguiRenderEvent<'a, 'b, T> {
     pub egui: Context,
 }
 
-impl<'a, Inner> Port<'a, EguiInputEvent, Inner> for EguiRenderPort {
-    fn port(&mut self, event: &mut EguiInputEvent, _: &mut Inner) {
-        if self.ctx.is_none() {
-            self.ctx = Some(event.ctx.clone());
-        }
-
-        if self.submit_current {
-            let full_output = event.ctx.end_pass();
-            let paint_jobs = event
-                .ctx
-                .tessellate(full_output.shapes, event.screen_descriptor.pixels_per_point);
-
-            self.render_data.replace(EguiRenderPayload {
-                screen_descriptor: ScreenDescriptor {
-                    size_in_pixels: event.screen_descriptor.size_in_pixels,
-                    pixels_per_point: event.screen_descriptor.pixels_per_point,
-                },
-                paint_jobs: paint_jobs.into_boxed_slice(),
-                textures_delta: full_output.textures_delta,
-            });
-            self.submit_current = false;
-            self.begin_next = true;
-        }
-        if self.begin_next {
-            event.ctx.begin_pass(event.input.take().unwrap());
-            self.begin_next = false;
-        }
+impl<T> IsRenderEvent for EguiRenderEvent<'_, '_, T> {
+    type Data = T;
+    fn render_data(&self) -> &RenderEvent<T> {
+        self.base
     }
 }
 
@@ -159,36 +125,21 @@ pub trait EguiRenderData: 'static {
     fn egui_render_payload(&self) -> &ResHandle<EguiRenderPayload>;
 }
 
-impl<'a, 'b, Inner: for<'c, 'd> Controller<EguiRenderEvent<'c, 'd, T>>, T: EguiRenderData>
-    Port<'a, RenderEvent<'b, T>, Inner> for EguiRenderPort
-{
-    fn port(&mut self, event: &'a mut RenderEvent<'b, T>, inner: &mut Inner) {
-        if let Some(ctx) = &self.ctx {
-            inner.run(EguiRenderEvent {
-                base: event,
-                egui: ctx.clone(),
-            });
-            self.submit_current = true;
-        }
-
-        if let Some(render_data) = self.render_data.take() {
-            event
-                .access(|res| res.egui_render_payload().result())
-                .replace(render_data);
-        }
-    }
-}
-
-fn state_lazy<'a>(
-    states: &'a mut HashMap<WindowId, State>,
+fn window_state_lazy<'a>(
+    states: &'a mut HashMap<WindowId, WindowState>,
     window_id: WindowId,
     ctx: Context,
     viewport: ViewportId,
     display_target: &dyn HasDisplayHandle,
-) -> &'a mut State {
-    states
-        .entry(window_id)
-        .or_insert_with(|| State::new(ctx, viewport, display_target, None, None, None))
+) -> &'a mut WindowState {
+    states.entry(window_id).or_insert_with(|| WindowState {
+        state: State::new(ctx, viewport, display_target, None, None, None),
+        input: RawInput::default(),
+        screen: ScreenDescriptor {
+            pixels_per_point: 0.,
+            size_in_pixels: [0, 0],
+        },
+    })
 }
 pub struct EguiRenderPass {
     renderer: Renderer,
@@ -221,6 +172,7 @@ impl EguiRenderPass {
 impl PassEncoder for EguiRenderPass {
     fn encode<'a>(&'a mut self, res: &RenderResMap, encoder: &'a mut CommandEncoder, gpu: &Gpu) {
         let Some(render_data) = res.try_access(&self.render_data) else {
+            println!("Warn: No egui render data provided, use the EguiRenderer as native renderer in the RenderPort or remove EguiRenderPass from the RenderGraph.");
             return;
         };
 

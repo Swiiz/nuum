@@ -13,23 +13,16 @@ use nuum::{
     },
 };
 
-use nuum_egui::{
-    EguiInputPort, EguiRenderData, EguiRenderEvent, EguiRenderPass, EguiRenderPayload,
-    EguiRenderPort,
-};
-use nuum_renderer::RenderPort;
+use nuum_egui::{EguiRenderData, EguiRenderEvent, EguiRenderPass, EguiRenderPayload, EguiRenderer};
+use nuum_renderer::{IsRenderEvent, RenderEvent, RenderPort};
 
 fn main() {
     let mut app = Adapter {
         ports: (
             SingleWindowPort::default(),
-            RenderPort::new(render_graph),
-            EguiInputPort::default(),
+            RenderPort::new_with_native(render_graph, EguiRenderer::default()),
         ),
-        inner: Adapter {
-            ports: (EguiRenderPort::default()),
-            inner: App::default(),
-        },
+        inner: App::default(),
     };
 
     WinPlatform::default().run(&mut app);
@@ -58,11 +51,15 @@ impl<'a, 'b> Controller<EguiRenderEvent<'a, 'b, RenderData>> for App {
             ui.color_edit_button_rgb(&mut self.background_color);
         });
 
-        let mut render_bg_color = event.base.access(|data| data.background.write());
+        let mut render_bg_color = event.render_data().access(|data| data.background.write());
         render_bg_color.r = self.background_color[0] as f64;
         render_bg_color.g = self.background_color[1] as f64;
         render_bg_color.b = self.background_color[2] as f64;
     }
+}
+
+impl<'a> Controller<RenderEvent<'a, RenderData>> for App {
+    fn run(&mut self, _: RenderEvent<'a, RenderData>) {}
 }
 
 pub struct RenderData {

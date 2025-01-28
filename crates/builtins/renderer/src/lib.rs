@@ -1,5 +1,6 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 
+use native::NativeRenderer;
 use nuum_core::{Controller, Port};
 use nuum_gpu::{
     surface::{GpuSurface, SurfaceTarget},
@@ -14,12 +15,17 @@ use nuum_win_platform::{
     WinPlatformEvent, WinPlatformEventKind, WinPlatformHandle,
 };
 
+pub mod native;
+
 pub type SurfaceRenderers<T> = HashMap<WindowId, SurfaceRenderer<T>>;
 
-pub struct RenderPort<T> {
+pub struct RenderPort<T, Platform, Inner, N: NativeRenderer<T, Platform, Inner> = ()> {
     gpu: Gpu,
     builder: Box<dyn FnMut(&Gpu, &GpuSurface<'static>) -> (RenderGraph, T)>,
     surfaces: SurfaceRenderers<T>,
+
+    native: N,
+    _marker: PhantomData<(Inner, Platform)>,
 }
 
 pub struct SurfaceRenderer<T> {
@@ -30,7 +36,7 @@ pub struct SurfaceRenderer<T> {
     should_close: bool,
 }
 
-impl<T> RenderPort<T> {
+impl<T, P, I> RenderPort<T, P, I> {
     pub fn new(
         builder: impl FnMut(&Gpu, &GpuSurface<'static>) -> (RenderGraph, T) + 'static,
     ) -> Self {
@@ -42,6 +48,27 @@ impl<T> RenderPort<T> {
             gpu,
             builder,
             surfaces,
+            native: (),
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<T, N: NativeRenderer<T, P, I>, P, I> RenderPort<T, P, I, N> {
+    pub fn new_with_native(
+        builder: impl FnMut(&Gpu, &GpuSurface<'static>) -> (RenderGraph, T) + 'static,
+        native: N,
+    ) -> Self {
+        let gpu = Gpu::new();
+        let surfaces = HashMap::new();
+        let builder = Box::new(builder);
+
+        Self {
+            gpu,
+            builder,
+            surfaces,
+            native,
+            _marker: PhantomData,
         }
     }
 }
@@ -49,6 +76,17 @@ impl<T> RenderPort<T> {
 pub struct RenderEvent<'a, T> {
     window_id: WindowId,
     surface_renderer: &'a mut SurfaceRenderer<T>,
+}
+
+pub trait IsRenderEvent {
+    type Data;
+    fn render_data(&self) -> &RenderEvent<Self::Data>;
+}
+impl<T> IsRenderEvent for RenderEvent<'_, T> {
+    type Data = T;
+    fn render_data(&self) -> &RenderEvent<T> {
+        self
+    }
 }
 
 impl<'a, T> RenderEvent<'a, T> {
@@ -68,10 +106,16 @@ impl<'a, T> RenderEvent<'a, T> {
     }
 }
 
-impl<'a, 'b, T, Inner: for<'c> Controller<RenderEvent<'c, T>>> Port<'a, WinPlatformEvent<'b>, Inner>
-    for RenderPort<T>
+impl<
+        'a,
+        'b,
+        T,
+        Inner: for<'c> Controller<RenderEvent<'c, T>>,
+        N: for<'d> NativeRenderer<T, WinPlatformEvent<'d>, Inner>,
+    > Port<'a, WinPlatformEvent<'b>, Inner> for RenderPort<T, WinPlatformEvent<'_>, Inner, N>
 {
     fn port(&mut self, input: &mut WinPlatformEvent, inner: &mut Inner) {
+        self.native.on_platform_event(input);
         match &input.kind {
             WinPlatformEventKind::WindowEvent {
                 window_id,
@@ -88,6 +132,14 @@ impl<'a, 'b, T, Inner: for<'c> Controller<RenderEvent<'c, T>>> Port<'a, WinPlatf
                         return;
                     };
 
+                    let mut event = RenderEvent {
+                        window_id: *window_id,
+                        surface_renderer,
+                    };
+
+                    self.native.render_port(&mut event, inner);
+                    inner.run(event);
+
                     if let Some(frame) = surface_renderer.surface.next_frame(&self.gpu) {
                         surface_renderer
                             .render_graph
@@ -97,11 +149,6 @@ impl<'a, 'b, T, Inner: for<'c> Controller<RenderEvent<'c, T>>> Port<'a, WinPlatf
 
                     if let Some(window) = input.handle.get_window(*window_id) {
                         window.request_redraw();
-
-                        inner.run(RenderEvent {
-                            window_id: *window_id,
-                            surface_renderer,
-                        });
                     } else {
                         surface_renderer.should_close = true;
                     }
