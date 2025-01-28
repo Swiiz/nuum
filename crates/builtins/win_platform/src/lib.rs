@@ -1,5 +1,5 @@
 use internals::WindowVec;
-use nuum_core::platform::{Platform, PlatformHandle};
+use nuum_core::platform::{Platform, PlatformEvent};
 use winit::{
     event::{DeviceEvent, DeviceId, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
@@ -84,12 +84,6 @@ impl WinPlatformHandle<'_> {
     }
 }
 
-impl PlatformHandle for WinPlatformHandle<'_> {
-    fn exit(&self) {
-        self.event_loop.exit();
-    }
-}
-
 impl<'a> AsMut<WinPlatformHandle<'a>> for WinPlatformEvent<'a> {
     fn as_mut(&mut self) -> &mut WinPlatformHandle<'a> {
         self.handle
@@ -105,16 +99,28 @@ impl Default for WinPlatform {
 }
 
 impl Platform for WinPlatform {
-    type PlatformHandle<'a> = WinPlatformHandle<'a>;
-    type Output<'a> = WinPlatformEvent<'a>;
+    type Event<'a> = WinPlatformEvent<'a>;
 
-    fn run<T: for<'a> nuum_core::Controller<Self::Output<'a>>>(&mut self, controller: &mut T) {
+    fn run<T: for<'a> nuum_core::Controller<Self::Event<'a>>>(&mut self, controller: &mut T) {
         let event_loop = EventLoop::new().unwrap();
         let mut runner = internals::WinPlatformRunner::<T>::new(controller);
 
         event_loop.set_control_flow(self.control_flow);
 
         event_loop.run_app(&mut runner).unwrap();
+    }
+}
+
+impl PlatformEvent for WinPlatformEvent<'_> {
+    fn exit(&self) {
+        self.handle.event_loop.exit();
+    }
+
+    fn is_update(&self) -> bool {
+        matches!(
+            self.kind,
+            WinPlatformEventKind::Init | WinPlatformEventKind::AboutToWait
+        )
     }
 }
 

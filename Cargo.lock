@@ -1139,6 +1139,7 @@ version = "0.1.0"
 dependencies = [
  "nuum_core",
  "nuum_egui",
+ "nuum_event_loop",
  "nuum_gpu",
  "nuum_render_graph",
  "nuum_renderer",
@@ -1172,6 +1173,13 @@ dependencies = [
  "nuum_render_graph",
  "nuum_renderer",
  "nuum_win_platform",
+]
+
+[[package]]
+name = "nuum_event_loop"
+version = "0.1.0"
+dependencies = [
+ "nuum_core",
 ]
 
 [[package]]

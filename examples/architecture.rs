@@ -1,7 +1,6 @@
-use std::marker::PhantomData;
-
-use nuum_core::{Adapter, Controller, Port};
-use nuum_egui::api::util::id_type_map::TypeId;
+use nuum_core::{
+    Adapter, Controller, Port,
+};
 
 pub struct UpdatePort;
 pub struct RenderPort;
@@ -41,31 +40,3 @@ fn main() {
 }
 
 //////////////////////////////////////////////
-
-// Only accepts Update<T> or Render<T> dispatching it to the correct ports
-struct Multi<Rp, Up, Inner> {
-    render_ports: Rp,
-    update_ports: Up,
-    inner: Inner,
-}
-
-pub struct Render<T>(pub T);
-pub struct Update<T>(pub T);
-
-impl<Rp, Up, Inner, Event> Controller<Render<Event>> for Multi<Rp, Up, Inner>
-where
-    Rp: for<'a> Port<'a, Render<Event>, Inner>,
-{
-    fn run(&mut self, mut event: Render<Event>) {
-        self.render_ports.port(&mut event, &mut self.inner);
-    }
-}
-
-impl<Rp, Up, Inner, Event> Controller<Update<Event>> for Multi<Rp, Up, Inner>
-where
-    Up: for<'a> Port<'a, Update<Event>, Inner>,
-{
-    fn run(&mut self, mut event: Update<Event>) {
-        self.update_ports.port(&mut event, &mut self.inner);
-    }
-}

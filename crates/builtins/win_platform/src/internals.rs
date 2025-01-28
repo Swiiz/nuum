@@ -1,4 +1,4 @@
-use nuum_core::{platform::PlatformHandle, Controller};
+use nuum_core::Controller;
 use winit::{
     application::ApplicationHandler, event::WindowEvent, event_loop::ActiveEventLoop,
     window::WindowId,
@@ -84,7 +84,7 @@ impl<'a, T: for<'b> Controller<WinPlatformEvent<'b>>> ApplicationHandler
 
         // Close the application if there are no windows
         if handle.windows.is_empty() {
-            handle.exit();
+            handle.event_loop.exit();
         }
 
         self.controller.run(WinPlatformEvent {

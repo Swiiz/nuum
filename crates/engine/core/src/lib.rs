@@ -1,3 +1,4 @@
+pub mod event;
 pub mod platform;
 pub use mint as maths;
 
@@ -54,7 +55,6 @@ macro_rules! impl_port_tuples {
     };
 }
 
-impl_port_tuples!();
 impl_port_tuples!(A 'a);
 impl_port_tuples!(A 'a, B 'b);
 impl_port_tuples!(A 'a, B 'b, C 'c);

@@ -1,12 +1,12 @@
 use crate::Controller;
 
 pub trait Platform {
-    type PlatformHandle<'a>: PlatformHandle;
-    type Output<'a>: AsMut<Self::PlatformHandle<'a>>;
+    type Event<'a>: PlatformEvent;
 
-    fn run<T: for<'a> Controller<Self::Output<'a>>>(&mut self, controller: &mut T);
+    fn run<T: for<'a> Controller<Self::Event<'a>>>(&mut self, controller: &mut T);
 }
 
-pub trait PlatformHandle {
+pub trait PlatformEvent {
     fn exit(&self);
+    fn is_update(&self) -> bool;
 }

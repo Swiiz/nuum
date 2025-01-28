@@ -12,6 +12,7 @@ nuum_gpu = { path = "crates/engine/gpu", optional = true }
 nuum_render_graph = { path = "crates/engine/render_graph", optional = true }
 
 ##TODO: Add features
+nuum_event_loop = { path = "crates/builtins/event_loop" }
 nuum_renderer = { path = "crates/builtins/renderer" }
 nuum_egui = { path = "crates/builtins/egui" }
 
@@ -27,5 +28,5 @@ default = ["win_platform", "gpu", "renderer"]
 resolver = "2"
 members = [
   "crates/engine/*",
-  "crates/builtins/*",
+  "crates/builtins/*"
 ]

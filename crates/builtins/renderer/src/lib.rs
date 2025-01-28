@@ -1,7 +1,10 @@
-use std::{collections::HashMap, marker::PhantomData, sync::Arc};
+use std::{collections::HashMap, marker::PhantomData, sync::Arc, time::Instant};
 
 use native::NativeRenderer;
-use nuum_core::{Controller, Port};
+use nuum_core::{
+    event::{Render},
+    Controller, Port,
+};
 use nuum_gpu::{
     surface::{GpuSurface, SurfaceTarget},
     Gpu,
@@ -32,6 +35,7 @@ pub struct SurfaceRenderer<T> {
     surface: GpuSurface<'static>,
     render_graph: RenderGraph,
     res: T,
+    last_frame: Instant,
 
     should_close: bool,
 }
@@ -73,30 +77,31 @@ impl<T, N: NativeRenderer<T, P, I>, P, I> RenderPort<T, P, I, N> {
     }
 }
 
-pub struct RenderEvent<'a, T> {
+pub type RenderEvent<'a, T> = Render<RenderEventInner<'a, T>>;
+pub struct RenderEventInner<'a, T> {
     window_id: WindowId,
     surface_renderer: &'a mut SurfaceRenderer<T>,
 }
 
 pub trait IsRenderEvent {
     type Data;
-    fn render_data(&self) -> &RenderEvent<Self::Data>;
+    fn render_data(&self) -> &RenderEventInner<Self::Data>;
 }
 impl<T> IsRenderEvent for RenderEvent<'_, T> {
     type Data = T;
-    fn render_data(&self) -> &RenderEvent<T> {
+    fn render_data(&self) -> &RenderEventInner<T> {
         self
     }
 }
 
-impl<'a, T> RenderEvent<'a, T> {
+impl<'a, T> RenderEventInner<'a, T> {
     pub fn access<U: ResAccessor>(&'a self, f: impl FnOnce(&T) -> U) -> U::Value<'a> {
         let u = f(&self.surface_renderer.res);
         self.surface_renderer.render_graph.data.access(&u)
     }
 }
 
-impl<'a, T> RenderEvent<'a, T> {
+impl<'a, T> RenderEventInner<'a, T> {
     pub fn window_id(&self) -> WindowId {
         self.window_id
     }
@@ -132,9 +137,14 @@ impl<
                         return;
                     };
 
-                    let mut event = RenderEvent {
-                        window_id: *window_id,
-                        surface_renderer,
+                    let dt = surface_renderer.last_frame.elapsed();
+
+                    let mut event = Render {
+                        inner: RenderEventInner {
+                            window_id: *window_id,
+                            surface_renderer,
+                        },
+                        dt,
                     };
 
                     self.native.render_port(&mut event, inner);
@@ -146,6 +156,8 @@ impl<
                             .run(&self.gpu, frame)
                             .present(&self.gpu);
                     }
+
+                    surface_renderer.last_frame = Instant::now();
 
                     if let Some(window) = input.handle.get_window(*window_id) {
                         window.request_redraw();
@@ -202,6 +214,6 @@ fn surface_renderer_lazy<'a, T>(
                 });
                 let (render_graph, res) = builder(gpu, &surface);
 
-            SurfaceRenderer {surface, render_graph, res, should_close: false}
+            SurfaceRenderer {surface, render_graph, res, should_close: false, last_frame: Instant::now()}
         }))
 }

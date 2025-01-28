@@ -9,12 +9,12 @@ use egui_winit::{
     },
     State,
 };
-use nuum_core::{Controller, Port};
+use nuum_core::{event::Render, Controller};
 use nuum_gpu::{
     surface::GpuSurface,
     wgpu::{
-        rwh::HasDisplayHandle, CommandEncoder, LoadOp, Operations, RenderPassColorAttachment,
-        RenderPassDescriptor, StoreOp, TextureView,
+        rwh::HasDisplayHandle, CommandEncoder, LoadOp, Operations, RenderPass,
+        RenderPassColorAttachment, RenderPassDescriptor, StoreOp, TextureView,
     },
     Gpu,
 };
@@ -22,7 +22,7 @@ use nuum_render_graph::{
     pass::{PassEncoder, PassNode},
     res::{MoveRes, RenderResMap, ResHandle, WriteRes},
 };
-use nuum_renderer::{native::NativeRenderer, IsRenderEvent, RenderEvent};
+use nuum_renderer::{native::NativeRenderer, IsRenderEvent, RenderEvent, RenderEventInner};
 use nuum_win_platform::{WinPlatformEvent, WinPlatformEventKind};
 
 pub struct WindowState {
@@ -37,7 +37,7 @@ pub struct EguiRenderer {
     ctx: Context,
 }
 
-impl<T: EguiRenderData, Inner: for<'c, 'd> Controller<EguiRenderEvent<'c, 'd, T>>>
+impl<T: EguiRenderData, Inner: for<'c, 'd> Controller<RenderEguiEvent<'c, 'd, T>>>
     NativeRenderer<T, WinPlatformEvent<'_>, Inner> for EguiRenderer
 {
     fn on_platform_event(&mut self, event: &mut WinPlatformEvent<'_>) {
@@ -86,9 +86,12 @@ impl<T: EguiRenderData, Inner: for<'c, 'd> Controller<EguiRenderEvent<'c, 'd, T>
             let full_output = self
                 .ctx
                 .run(std::mem::take(&mut window_state.input), |ctx| {
-                    inner.run(EguiRenderEvent {
-                        base: event,
-                        egui: ctx.clone(),
+                    inner.run(Render {
+                        inner: EguiRenderInner {
+                            base: &mut event.inner,
+                            egui: ctx.clone(),
+                        },
+                        dt: event.dt,
                     });
                 });
             let paint_jobs = self
@@ -109,14 +112,15 @@ impl<T: EguiRenderData, Inner: for<'c, 'd> Controller<EguiRenderEvent<'c, 'd, T>
     }
 }
 
-pub struct EguiRenderEvent<'a, 'b, T> {
-    pub base: &'a mut RenderEvent<'b, T>,
+pub type RenderEguiEvent<'a, 'b, T> = Render<EguiRenderInner<'a, 'b, T>>;
+pub struct EguiRenderInner<'a, 'b, T> {
+    pub base: &'a mut RenderEventInner<'b, T>,
     pub egui: Context,
 }
 
-impl<T> IsRenderEvent for EguiRenderEvent<'_, '_, T> {
+impl<T> IsRenderEvent for EguiRenderInner<'_, '_, T> {
     type Data = T;
-    fn render_data(&self) -> &RenderEvent<T> {
+    fn render_data(&self) -> &RenderEventInner<T> {
         self.base
     }
 }
@@ -167,10 +171,14 @@ impl EguiRenderPass {
             render_data,
         }
     }
-}
 
-impl PassEncoder for EguiRenderPass {
-    fn encode<'a>(&'a mut self, res: &RenderResMap, encoder: &'a mut CommandEncoder, gpu: &Gpu) {
+    pub fn render(
+        &mut self,
+        render_pass: &mut RenderPass<'static>,
+        res: &RenderResMap,
+        encoder: &mut CommandEncoder,
+        gpu: &Gpu,
+    ) {
         let Some(render_data) = res.try_access(&self.render_data) else {
             println!("Warn: No egui render data provided, use the EguiRenderer as native renderer in the RenderPort or remove EguiRenderPass from the RenderGraph.");
             return;
@@ -191,7 +199,16 @@ impl PassEncoder for EguiRenderPass {
             &render_data.paint_jobs,
             &render_data.screen_descriptor,
         );
+        self.renderer.render(
+            render_pass,
+            &render_data.paint_jobs,
+            &render_data.screen_descriptor,
+        );
+    }
+}
 
+impl PassEncoder for EguiRenderPass {
+    fn encode<'a>(&'a mut self, res: &RenderResMap, encoder: &'a mut CommandEncoder, gpu: &Gpu) {
         let render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
             label: None,
             color_attachments: &[Some(RenderPassColorAttachment {
@@ -207,14 +224,7 @@ impl PassEncoder for EguiRenderPass {
             timestamp_writes: None,
         });
 
-        let mut render_pass = render_pass.forget_lifetime(); // Renderpass and encoder can't live at the same time?
-
-        // Record all render passes.
-        self.renderer.render(
-            &mut render_pass,
-            &render_data.paint_jobs,
-            &render_data.screen_descriptor,
-        );
+        self.render(&mut render_pass.forget_lifetime(), res, encoder, gpu);
     }
 
     fn node_builder(&self) -> (impl FnOnce(PassNode) -> PassNode + 'static) {

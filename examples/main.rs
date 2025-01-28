@@ -13,14 +13,18 @@ use nuum::{
     },
 };
 
-use nuum_egui::{EguiRenderData, EguiRenderEvent, EguiRenderPass, EguiRenderPayload, EguiRenderer};
+use nuum_egui::{EguiRenderData, EguiRenderPass, EguiRenderPayload, EguiRenderer, RenderEguiEvent};
+use nuum_event_loop::{EventLoopPort, UpdateEvent};
 use nuum_renderer::{IsRenderEvent, RenderEvent, RenderPort};
 
 fn main() {
+    //impl_schema!(Schema := Render);
+
     let mut app = Adapter {
         ports: (
             SingleWindowPort::default(),
             RenderPort::new_with_native(render_graph, EguiRenderer::default()),
+            EventLoopPort::default(),
         ),
         inner: App::default(),
     };
@@ -42,8 +46,8 @@ impl Default for App {
     }
 }
 
-impl<'a, 'b> Controller<EguiRenderEvent<'a, 'b, RenderData>> for App {
-    fn run(&mut self, mut event: EguiRenderEvent<'a, 'b, RenderData>) {
+impl<'a, 'b> Controller<RenderEguiEvent<'a, 'b, RenderData>> for App {
+    fn run(&mut self, mut event: RenderEguiEvent<'a, 'b, RenderData>) {
         nuum_egui::api::Window::new("Nuum EGUI window").show(&mut event.egui, |ui| {
             ui.heading(format!("Hello world! {}", self.start.elapsed().as_millis()));
             ui.separator();
@@ -60,6 +64,10 @@ impl<'a, 'b> Controller<EguiRenderEvent<'a, 'b, RenderData>> for App {
 
 impl<'a> Controller<RenderEvent<'a, RenderData>> for App {
     fn run(&mut self, _: RenderEvent<'a, RenderData>) {}
+}
+
+impl<'a> Controller<UpdateEvent> for App {
+    fn run(&mut self, _: UpdateEvent) {}
 }
 
 pub struct RenderData {
